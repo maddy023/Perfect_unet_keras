@@ -1,0 +1,118 @@
+import os
+from skimage.transform import resize
+from skimage.io import imsave
+import numpy as np
+from keras.models import Model
+from keras.layers import Input, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose , UpSampling2D , Dropout
+from keras.optimizers import Adam
+from keras.callbacks import ModelCheckpoint
+from keras import backend as K
+
+from PIL import Image
+from keras.preprocessing.image import ImageDataGenerator
+
+
+ #def gen(train_image,train_mask,val_images,val_mask):
+data_gen_args = dict(#featurewise_center=True,
+                     #featurewise_std_normalization=True,
+                     rotation_range=90,
+                     width_shift_range=0.1,
+                     height_shift_range=0.1,
+                     zoom_range=0.2)
+  
+image_datagen = ImageDataGenerator(**data_gen_args)
+mask_datagen = ImageDataGenerator(**data_gen_args)
+vimage_datagen = ImageDataGenerator(**data_gen_args)
+vmask_datagen = ImageDataGenerator(**data_gen_args)
+# Provide the same seed and keyword arguments to the fit and flow methods
+seed = 1
+
+#image_datagen.fit(images, augment=True, seed=seed)
+image_generator = image_datagen.flow_from_directory(
+    '/content/drive/My Drive/2019 github projects/Bioinfo/nuelcichemicalscren/imgd',
+    class_mode=None,target_size=(256,256),batch_size=16,color_mode="grayscale",
+    seed=seed)
+
+mask_generator = mask_datagen.flow_from_directory(
+    '/content/drive/My Drive/2019 github projects/Bioinfo/nuelcichemicalscren/maskd/',
+    class_mode=None,target_size=(256,256),batch_size=16,color_mode="grayscale",
+    seed=seed)
+   
+#vimage_generator = image_datagen.flow_from_directory(
+#    '/content/drive/My Drive/2019 github projects/dataset1/test',
+#    class_mode=None,target_size=(256, 256),batch_size=8,
+#    seed=seed)
+
+#vmask_generator = mask_datagen.flow_from_directory(
+#    '/content/drive/My Drive/2019 github projects/dataset1/mask_test',
+#    class_mode=None,target_size=(256, 256),batch_size=8,seed=seed)
+
+# combine generators into one which yields image and masks
+ 
+train_generator = zip(image_generator, mask_generator)
+#val_generator = zip(vimage_generator,vmask_generator)
+  
+
+
+IMG_HEIGHT=256
+IMG_WIDTH=256
+IMG_CHANNELS=1
+inputs = Input((IMG_HEIGHT, IMG_WIDTH, IMG_CHANNELS))
+
+c1 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (inputs)
+c1 = Dropout(0.4) (c1)
+c1 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c1)
+p1 = MaxPooling2D((2, 2)) (c1)
+
+c2 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (p1)
+c2 = Dropout(0.5) (c2)
+c2 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c2)
+p2 = MaxPooling2D((2, 2)) (c2)
+
+c3 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (p2)
+c3 = Dropout(0.3) (c3)
+c3 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c3)
+p3 = MaxPooling2D((2, 2)) (c3)
+
+c4 = Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (p3)
+c4 = Dropout(0.3) (c4)
+c4 = Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c4)
+p4 = MaxPooling2D(pool_size=(2, 2)) (c4)
+
+c5 = Conv2D(256, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (p4)
+c5 = Dropout(0.3) (c5)
+c5 = Conv2D(256, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c5)
+
+u6 = Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='same') (c5)
+u6 = concatenate([u6, c4])
+c6 = Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (u6)
+c6 = Dropout(0.4) (c6)
+c6 = Conv2D(128, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c6)
+
+u7 = Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='same') (c6)
+u7 = concatenate([u7, c3])
+c7 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (u7)
+c7 = Dropout(0.5) (c7)
+c7 = Conv2D(64, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c7)
+
+u8 = Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='same') (c7)
+u8 = concatenate([u8, c2])
+c8 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (u8)
+c8 = Dropout(0.3) (c8)
+c8 = Conv2D(32, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c8)
+
+u9 = Conv2DTranspose(16, (2, 2), strides=(2, 2), padding='same') (c8)
+u9 = concatenate([u9, c1], axis=3)
+c9 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (u9)
+c9 = Dropout(0.4) (c9)
+c9 = Conv2D(16, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same') (c9)
+
+outputs = Conv2D(1, (1, 1), activation='sigmoid') (c9)
+
+model = Model(inputs=[inputs], outputs=[outputs])
+model.compile(optimizer='adam', loss='binary_crossentropy',metrics=["accuracy"])
+model.summary()
+
+
+model_checkpoint = ModelCheckpoint('unet_membrane.hdf5', monitor='loss',save_best_only=True)
+model.fit_generator(train_generator,steps_per_epoch=100,epochs=50,callbacks=[model_checkpoint])
